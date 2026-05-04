@@ -1,0 +1,53 @@
+/* WhatsApp Scam Detector — styles.css */
+
+/* Scam bubble highlight */
+.wsd-scam-bubble {
+  position: relative;
+  border-left: 3px solid #e74c3c !important;
+  border-radius: 6px;
+}
+
+/* Badge base */
+.wsd-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-family: 'Segoe UI', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  width: fit-content;
+  animation: wsd-fadein 0.3s ease;
+}
+
+/* Scam badge */
+.wsd-badge.wsd-scam {
+  background: #fff0f0;
+  color: #c0392b;
+  border: 1px solid #f5c6c6;
+}
+
+/* Safe badge */
+.wsd-badge.wsd-safe {
+  background: #f0fff4;
+  color: #27ae60;
+  border: 1px solid #b2dfdb;
+}
+
+.wsd-icon {
+  font-size: 13px;
+}
+
+.wsd-conf {
+  font-weight: 400;
+  opacity: 0.75;
+  font-size: 10.5px;
+}
+
+@keyframes wsd-fadein {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp Scam Detector</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 280px;
+      font-family: 'Segoe UI', sans-serif;
+      background: #0a0f1e;
+      color: #e8eaf0;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #128c7e, #075e54);
+      padding: 18px 16px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-icon {
+      font-size: 24px;
+    }
+
+    .header-text h1 {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: #fff;
+    }
+
+    .header-text p {
+      font-size: 10.5px;
+      color: rgba(255,255,255,0.65);
+      margin-top: 2px;
+    }
+
+    .status-section {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .status-label {
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+
+    .status-pill.online {
+      background: rgba(46,204,113,0.15);
+      color: #2ecc71;
+      border: 1px solid rgba(46,204,113,0.3);
+    }
+
+    .status-pill.offline {
+      background: rgba(231,76,60,0.15);
+      color: #e74c3c;
+      border: 1px solid rgba(231,76,60,0.3);
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .dot.pulse {
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .stats-section {
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .stat-card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 10px 12px;
+      text-align: center;
+    }
+
+    .stat-number {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .stat-number.scam { color: #e74c3c; }
+    .stat-number.safe { color: #2ecc71; }
+    .stat-number.total { color: #3498db; }
+
+    .stat-label {
+      font-size: 10px;
+      color: rgba(255,255,255,0.4);
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .info-section {
+      padding: 14px 16px;
+    }
+
+    .info-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 11.5px;
+      color: rgba(255,255,255,0.55);
+      line-height: 1.5;
+    }
+
+    .info-icon { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+
+    .check-btn {
+      display: block;
+      width: calc(100% - 32px);
+      margin: 0 16px 16px;
+      padding: 10px;
+      background: linear-gradient(135deg, #128c7e, #25d366);
+      color: #fff;
+      font-size: 12.5px;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      transition: opacity 0.2s;
+    }
+
+    .check-btn:hover { opacity: 0.88; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <span class="header-icon">🛡️</span>
+    <div class="header-text">
+      <h1>WhatsApp Scam Detector</h1>
+      <p>AI-powered scam protection</p>
+    </div>
+  </div>
+
+  <div class="status-section">
+    <div class="status-row">
+      <span class="status-label">Backend API</span>
+      <span class="status-pill offline" id="api-status">
+        <span class="dot" id="api-dot"></span>
+        <span id="api-text">Checking…</span>
+      </span>
+    </div>
+    <div class="status-row" style="margin-bottom:0">
+      <span class="status-label">Page</span>
+      <span class="status-pill online" id="page-status">
+        <span class="dot pulse"></span>
+        <span id="page-text">Scanning</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="stats-section">
+    <div class="stat-card">
+      <div class="stat-number scam" id="scam-count">—</div>
+      <div class="stat-label">Scams found</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number total" id="total-count">—</div>
+      <div class="stat-label">Scanned</div>
+    </div>
+  </div>
+
+  <div class="info-section">
+    <div class="info-row">
+      <span class="info-icon">🔍</span>
+      <span>Messages are scanned automatically as they appear in your chat.</span>
+    </div>
+    <div class="info-row">
+      <span class="info-icon">⚡</span>
+      <span>The backend runs on Render.com — no local setup needed.</span>
+    </div>
+    <div class="info-row">
+      <span class="info-icon">🔒</span>
+      <span>Nothing is stored. Messages are only sent to your local server.</span>
+    </div>
+  </div>
+
+  <button class="check-btn" id="refresh-btn">🔄 Check Backend Status</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>
