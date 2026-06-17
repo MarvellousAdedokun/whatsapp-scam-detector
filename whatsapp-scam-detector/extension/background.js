@@ -1,132 +1,86 @@
 const API_URL      = 'https://whatsapp-scam-detector.onrender.com/predict';
-const FEEDBACK_URL = 'https://whatsapp-scam-detector.onrender.com/feedback';
 const ATTR_DONE    = 'data-scam-checked';
 const tabIntervals = {};
-
-// Generate a unique tester ID stored in chrome.storage (persists across sessions)
-async function getTesterID() {
-  const result = await chrome.storage.local.get(['testerID']);
-  if (result.testerID) return result.testerID;
-  const id = 'tester_' + Math.random().toString(36).substring(2, 10);
-  await chrome.storage.local.set({ testerID: id });
-  return id;
-}
 
 async function getUnscannedMessages(tabId) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     func: (attr) => {
-      const bubbles    = document.querySelectorAll(`div.message-in:not([${attr}])`);
-      const allBubbles = Array.from(document.querySelectorAll('div.message-in'));
-      return Array.from(bubbles).map(b => {
-        const spans  = b.querySelectorAll('span[data-testid="selectable-text"]');
-        const textEl = spans[spans.length - 1];
-        const text   = textEl ? textEl.innerText.trim() : '';
-        if (text && text.length >= 5) {
-          b.setAttribute(attr, 'pending');
-          return { index: allBubbles.indexOf(b), text };
-        }
-        b.setAttribute(attr, 'skip');
-        return null;
-      }).filter(Boolean);
+      // Find incoming messages by looking for tail-in SVG (only present on received messages)
+      const tailIns = document.querySelectorAll('[data-testid="tail-in"]');
+      const found = [];
+
+      tailIns.forEach(tail => {
+        // Walk up to the main message container
+        const bubble = tail.closest('[data-testid^="conv-msg-"]');
+        if (!bubble || bubble.hasAttribute(attr)) return;
+
+        // Get the actual text - last selectable-text span that's not a quoted message
+        const spans = bubble.querySelectorAll('span[data-testid="selectable-text"]');
+        // Filter out quoted-mention spans (those are previews of replied messages)
+        const textSpans = Array.from(spans).filter(s => !s.classList.contains('quoted-mention'));
+        const textEl = textSpans[textSpans.length - 1];
+
+        if (!textEl) { bubble.setAttribute(attr, 'skip'); return; }
+
+        const text = textEl.innerText.trim();
+        if (!text || text.length < 5) { bubble.setAttribute(attr, 'skip'); return; }
+
+        bubble.setAttribute(attr, 'pending');
+        found.push({
+          id: bubble.getAttribute('data-testid'),
+          text
+        });
+      });
+
+      return found;
     },
     args: [ATTR_DONE]
   });
   return results[0]?.result || [];
 }
 
-async function injectResult(tabId, bubbleIndex, isScam, confidence, predId, message, testerID) {
+async function injectBadge(tabId, msgTestId, isScam, confidence) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    func: (index, isScam, confidence, predId, message, testerID, attr, feedbackUrl) => {
-      const bubble = document.querySelectorAll('div.message-in')[index];
+    func: (testId, isScam, confidence, attr) => {
+      const bubble = document.querySelector(`[data-testid="${testId}"]`);
       if (!bubble) return;
       bubble.setAttribute(attr, 'done');
 
-      const pct = confidence ? Math.round(confidence * 100) : null;
-
-      // Badge container
-      const wrapper = document.createElement('div');
-      wrapper.style.cssText = 'margin: 4px 0 4px 10px; font-family: sans-serif;';
-
       if (isScam) {
-        // Scam badge
+        const pct = confidence ? Math.round(confidence * 100) : null;
         const badge = document.createElement('div');
-        badge.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:#fff0f0;color:#c0392b;border:1.5px solid #e74c3c;border-radius:12px;font-size:12px;font-weight:700;';
+        badge.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin:4px 0 4px 10px;padding:4px 12px;background:#fff0f0;color:#c0392b;border:1.5px solid #e74c3c;border-radius:12px;font-size:12px;font-weight:700;font-family:sans-serif;';
         badge.innerHTML = `⚠️ Scam detected${pct ? ` · ${pct}%` : ''}`;
-        wrapper.appendChild(badge);
-        bubble.style.outline    = '2px solid #e74c3c';
+        bubble.style.outline = '2px solid #e74c3c';
         bubble.style.borderRadius = '8px';
-      } else {
-        // Safe — small subtle indicator
-        const badge = document.createElement('div');
-        badge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:#f0fff4;color:#27ae60;border:1px solid #27ae60;border-radius:10px;font-size:11px;';
-        badge.innerHTML = '✅ Safe';
-        wrapper.appendChild(badge);
+        bubble.parentNode.insertBefore(badge, bubble.nextSibling);
       }
-
-      // Feedback buttons
-      const fb = document.createElement('div');
-      fb.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-left:8px;';
-      fb.innerHTML = `
-        <span style="font-size:11px;color:#8b949e;">Correct?</span>
-        <button data-fb="yes" style="background:#e8f5e9;border:1px solid #27ae60;border-radius:8px;padding:2px 8px;font-size:11px;cursor:pointer;color:#27ae60;">👍 Yes</button>
-        <button data-fb="no"  style="background:#fff0f0;border:1px solid #e74c3c;border-radius:8px;padding:2px 8px;font-size:11px;cursor:pointer;color:#c0392b;">👎 No</button>
-      `;
-
-      fb.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const wasCorrect  = btn.dataset.fb === 'yes';
-          const correctLabel = wasCorrect
-            ? (isScam ? 'scam' : 'not_scam')
-            : (isScam ? 'not_scam' : 'scam');
-
-          fetch(feedbackUrl, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id:            predId,
-              tester_id:     testerID,
-              message:       message,
-              correct_label: correctLabel,
-              was_correct:   wasCorrect,
-            })
-          });
-
-          // Replace buttons with thank you
-          fb.innerHTML = '<span style="font-size:11px;color:#8b949e;">Thanks for the feedback! 🙏</span>';
-        });
-      });
-
-      wrapper.appendChild(fb);
-      bubble.parentNode.insertBefore(wrapper, bubble.nextSibling);
     },
-    args: [bubbleIndex, isScam, confidence, predId, message, testerID, ATTR_DONE, FEEDBACK_URL]
+    args: [msgTestId, isScam, confidence, ATTR_DONE]
   });
 }
 
 async function scanTab(tabId) {
   try {
-    const testerID = await getTesterID();
     const messages = await getUnscannedMessages(tabId);
-
-    for (const { index, text } of messages) {
+    for (const { id, text } of messages) {
       try {
         const res  = await fetch(API_URL, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ message: text, tester_id: testerID })
+          body:    JSON.stringify({ message: text })
         });
         const data = await res.json();
-
-        await injectResult(tabId, index, data.is_scam, data.confidence, data.id, text, testerID);
+        await injectBadge(tabId, id, data.is_scam, data.confidence);
 
         const stats = await chrome.storage.session.get(['scamCount', 'totalCount']);
         await chrome.storage.session.set({
           totalCount: (stats.totalCount ?? 0) + 1,
           scamCount:  (stats.scamCount  ?? 0) + (data.is_scam ? 1 : 0)
         });
-      } catch(e) { console.warn('Predict error:', e); }
+      } catch(e) {}
     }
   } catch(e) {}
 }
