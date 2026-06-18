@@ -36,31 +36,29 @@ async function getUnscannedMessages(tabId) {
   return results[0]?.result || [];
 }
 
-async function injectResult(tabId, msgTestId, isScam, confidence, predId, message, testerID) {
+async function injectScamBadge(tabId, msgTestId, confidence, predId, message, testerID) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    func: (testId, isScam, confidence, predId, message, testerID, attr, feedbackUrl) => {
+    func: (testId, confidence, predId, message, testerID, attr, feedbackUrl) => {
       const bubble = document.querySelector(`[data-testid="${testId}"]`);
       if (!bubble) return;
       bubble.setAttribute(attr, 'done');
 
       const pct = confidence ? Math.round(confidence * 100) : null;
+
+      // Red outline on the bubble
+      bubble.style.outline    = '2px solid #e74c3c';
+      bubble.style.borderRadius = '8px';
+
+      // Wrapper: badge + feedback buttons on same row
       const wrapper = document.createElement('div');
       wrapper.style.cssText = 'margin:4px 0 4px 10px;font-family:sans-serif;display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
 
-      if (isScam) {
-        const badge = document.createElement('div');
-        badge.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:#fff0f0;color:#c0392b;border:1.5px solid #e74c3c;border-radius:12px;font-size:12px;font-weight:700;';
-        badge.innerHTML = `⚠️ Scam detected${pct ? ` · ${pct}%` : ''}`;
-        wrapper.appendChild(badge);
-        bubble.style.outline = '2px solid #e74c3c';
-        bubble.style.borderRadius = '8px';
-      } else {
-        const badge = document.createElement('div');
-        badge.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:#f0fff4;color:#27ae60;border:1px solid #27ae60;border-radius:10px;font-size:11px;';
-        badge.innerHTML = '✅ Safe';
-        wrapper.appendChild(badge);
-      }
+      // Scam badge
+      const badge = document.createElement('div');
+      badge.style.cssText = 'display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:#fff0f0;color:#c0392b;border:1.5px solid #e74c3c;border-radius:12px;font-size:12px;font-weight:700;';
+      badge.innerHTML = `⚠️ Scam detected${pct ? ` · ${pct}%` : ''}`;
+      wrapper.appendChild(badge);
 
       // Feedback buttons
       const fb = document.createElement('div');
@@ -68,13 +66,13 @@ async function injectResult(tabId, msgTestId, isScam, confidence, predId, messag
       fb.innerHTML = `
         <span style="font-size:11px;color:#8b949e;">Correct?</span>
         <button data-fb="yes" style="background:#e8f5e9;border:1px solid #27ae60;border-radius:8px;padding:2px 8px;font-size:11px;cursor:pointer;color:#27ae60;">👍 Yes</button>
-        <button data-fb="no" style="background:#fff0f0;border:1px solid #e74c3c;border-radius:8px;padding:2px 8px;font-size:11px;cursor:pointer;color:#c0392b;">👎 No</button>
+        <button data-fb="no"  style="background:#fff0f0;border:1px solid #e74c3c;border-radius:8px;padding:2px 8px;font-size:11px;cursor:pointer;color:#c0392b;">👎 No</button>
       `;
 
       fb.querySelectorAll('button').forEach(btn => {
         btn.addEventListener('click', () => {
           const wasCorrect   = btn.dataset.fb === 'yes';
-          const correctLabel = wasCorrect ? (isScam ? 'scam' : 'not_scam') : (isScam ? 'not_scam' : 'scam');
+          const correctLabel = wasCorrect ? 'scam' : 'not_scam';
           fetch(feedbackUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -87,7 +85,18 @@ async function injectResult(tabId, msgTestId, isScam, confidence, predId, messag
       wrapper.appendChild(fb);
       bubble.parentNode.insertBefore(wrapper, bubble.nextSibling);
     },
-    args: [msgTestId, isScam, confidence, predId, message, testerID, ATTR_DONE, FEEDBACK_URL]
+    args: [msgTestId, confidence, predId, message, testerID, ATTR_DONE, FEEDBACK_URL]
+  });
+}
+
+async function markSafe(tabId, msgTestId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (testId, attr) => {
+      const bubble = document.querySelector(`[data-testid="${testId}"]`);
+      if (bubble) bubble.setAttribute(attr, 'done');
+    },
+    args: [msgTestId, ATTR_DONE]
   });
 }
 
@@ -102,7 +111,13 @@ async function scanTab(tabId) {
           body: JSON.stringify({ message: text, tester_id: testerID })
         });
         const data = await res.json();
-        await injectResult(tabId, id, data.is_scam, data.confidence, data.id, text, testerID);
+
+        if (data.is_scam) {
+          await injectScamBadge(tabId, id, data.confidence, data.id, text, testerID);
+        } else {
+          await markSafe(tabId, id);  // mark done silently, no badge
+        }
+
         const stats = await chrome.storage.session.get(['scamCount', 'totalCount']);
         await chrome.storage.session.set({
           totalCount: (stats.totalCount ?? 0) + 1,
